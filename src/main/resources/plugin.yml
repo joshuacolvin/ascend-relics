@@ -1,0 +1,37 @@
+name: ${name}
+version: ${version}
+main: ${main}
+api-version: "${apiVersion}"
+description: Elemental relics with unique passive and active abilities
+authors:
+  - joshuacolvin
+commands:
+  ability1:
+    description: Use the first ability of your held relic
+    usage: /ability1
+  ability2:
+    description: Use the second ability of your held relic
+    usage: /ability2
+  trust:
+    description: Manage your trust list
+    usage: /trust <add|remove|list> [player]
+  giveall:
+    description: Give all relics to yourself (OP only)
+    usage: /giveall
+    permission: ascendrelics.admin
+  cooldown:
+    description: Reset all cooldowns for a player (OP only)
+    usage: /cooldown [player]
+    permission: ascendrelics.admin
+  lock:
+    description: Lock a relic type (OP only)
+    usage: /lock <relic>
+    permission: ascendrelics.admin
+  unlock:
+    description: Unlock a relic type (OP only)
+    usage: /unlock <relic>
+    permission: ascendrelics.admin
+permissions:
+  ascendrelics.admin:
+    description: Allows use of admin commands
+    default: op
