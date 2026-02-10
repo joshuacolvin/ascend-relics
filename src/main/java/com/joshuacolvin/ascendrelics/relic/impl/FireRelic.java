@@ -6,19 +6,20 @@ import com.joshuacolvin.ascendrelics.relic.RelicType;
 import com.joshuacolvin.ascendrelics.relic.ability.AbilityResult;
 import com.joshuacolvin.ascendrelics.relic.ability.ActiveAbility;
 import com.joshuacolvin.ascendrelics.relic.ability.PassiveAbility;
+import com.joshuacolvin.ascendrelics.util.ParticleUtil;
 import com.joshuacolvin.ascendrelics.util.TargetUtil;
+import static com.joshuacolvin.ascendrelics.util.TargetUtil.trueDamage;
 import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.util.Vector;
-
-import java.util.List;
 
 public class FireRelic extends Relic {
 
@@ -53,52 +54,75 @@ public class FireRelic extends Relic {
     }
 
     private class FlameBurstAbility extends ActiveAbility {
+        private static final double RADIUS = 5.0;
+        private static final int DURATION_TICKS = 100; // 5 seconds
+
         FlameBurstAbility() {
-            super("Flame Burst", "Create a moving zone of fire", 10);
+            super("Flame Burst", "Fire circle at your feet: damages enemies, heals allies", 60);
         }
 
         @Override
         public AbilityResult execute(Player player, Plugin pluginRef) {
-            Location start = player.getLocation().clone();
-            Vector direction = start.getDirection().setY(0).normalize();
-            player.getWorld().playSound(start, Sound.ENTITY_BLAZE_SHOOT, 1.0f, 0.8f);
+            player.getWorld().playSound(player.getLocation(), Sound.ENTITY_BLAZE_SHOOT, 1.0f, 0.8f);
+
+            AscendRelics ar = AscendRelics.getInstance();
 
             new BukkitRunnable() {
-                int step = 0;
+                int ticks = 0;
                 @Override
                 public void run() {
-                    step++;
-                    if (step > 10) { cancel(); return; }
-
-                    Location point = start.clone().add(direction.clone().multiply(step * 1.2));
-
-                    for (int i = 0; i < 10; i++) {
-                        double ox = (Math.random() - 0.5) * 3;
-                        double oz = (Math.random() - 0.5) * 3;
-                        player.getWorld().spawnParticle(Particle.FLAME,
-                                point.clone().add(ox, 0.5, oz), 1, 0, 0, 0, 0);
+                    ticks++;
+                    if (ticks > DURATION_TICKS / 20 || !player.isOnline()) {
+                        cancel();
+                        return;
                     }
 
-                    for (LivingEntity entity : TargetUtil.getNearbyLivingEntities(point, 1.5, player)) {
-                        entity.damage(4.0, player);
-                        entity.setFireTicks(60);
+                    Location center = player.getLocation();
+
+                    // Fire ring particles around the caster's feet
+                    ParticleUtil.ring(center.clone().add(0, 0.2, 0), Particle.FLAME, RADIUS, 30);
+                    ParticleUtil.ring(center.clone().add(0, 0.2, 0), Particle.SMALL_FLAME, RADIUS * 0.6, 15);
+
+                    for (Entity entity : center.getWorld().getNearbyEntities(center, RADIUS, RADIUS, RADIUS)) {
+                        if (entity.equals(player)) continue;
+
+                        if (entity instanceof Player target) {
+                            if (ar.trustManager().isTrusted(player.getUniqueId(), target.getUniqueId())) {
+                                // Heal trusted allies
+                                double maxHealth = target.getAttribute(Attribute.MAX_HEALTH).getValue();
+                                target.setHealth(Math.min(target.getHealth() + 2.0, maxHealth));
+                                target.getWorld().spawnParticle(Particle.HEART,
+                                        target.getLocation().add(0, 2, 0), 3, 0.3, 0.2, 0.3, 0);
+                            } else {
+                                // Damage non-trusted players
+                                trueDamage(target, 3.0, player);
+                                target.setFireTicks(40);
+                            }
+                        } else if (entity instanceof LivingEntity living) {
+                            // Damage mobs
+                            trueDamage(living, 3.0, player);
+                            living.setFireTicks(40);
+                        }
                     }
                 }
-            }.runTaskTimer(FireRelic.this.plugin, 0L, 4L);
+            }.runTaskTimer(FireRelic.this.plugin, 0L, 20L);
 
             return AbilityResult.SUCCESS;
         }
     }
 
     private class InfernoAbility extends ActiveAbility {
+        private static final double BLAST_RADIUS = 7.0;
+        private static final double SELF_DAMAGE = 6.0; // 3 hearts
+
         InfernoAbility() {
-            super("Inferno", "Delayed explosion at target location", 30);
+            super("Inferno", "Explode at your location, costs 3 hearts", 90);
         }
 
         @Override
         public AbilityResult execute(Player player, Plugin pluginRef) {
-            Location target = TargetUtil.raycastLocation(player, 15.0);
-            player.getWorld().playSound(target, Sound.ENTITY_TNT_PRIMED, 1.0f, 1.0f);
+            Location center = player.getLocation().clone();
+            player.getWorld().playSound(center, Sound.ENTITY_TNT_PRIMED, 1.0f, 1.0f);
 
             // Warning particles during delay
             new BukkitRunnable() {
@@ -107,7 +131,8 @@ public class FireRelic extends Relic {
                 public void run() {
                     ticks++;
                     if (ticks > 30) { cancel(); return; } // 1.5s delay
-                    target.getWorld().spawnParticle(Particle.FLAME, target, 5, 0.5, 0.5, 0.5, 0.02);
+                    player.getWorld().spawnParticle(Particle.FLAME,
+                            player.getLocation().add(0, 1, 0), 5, 0.5, 0.5, 0.5, 0.02);
                 }
             }.runTaskTimer(FireRelic.this.plugin, 0L, 1L);
 
@@ -115,12 +140,19 @@ public class FireRelic extends Relic {
             new BukkitRunnable() {
                 @Override
                 public void run() {
-                    target.getWorld().spawnParticle(Particle.EXPLOSION_EMITTER, target, 3, 0, 0, 0, 0);
-                    target.getWorld().spawnParticle(Particle.FLAME, target, 50, 2, 1, 2, 0.1);
-                    target.getWorld().playSound(target, Sound.ENTITY_GENERIC_EXPLODE, 1.5f, 0.8f);
+                    if (!player.isOnline()) return;
 
-                    for (LivingEntity entity : TargetUtil.getNearbyLivingEntities(target, 4.0, player)) {
-                        entity.damage(8.0, player);
+                    Location blastCenter = player.getLocation();
+                    blastCenter.getWorld().spawnParticle(Particle.EXPLOSION_EMITTER, blastCenter, 5, 0, 0, 0, 0);
+                    blastCenter.getWorld().spawnParticle(Particle.FLAME, blastCenter, 80, 3, 1.5, 3, 0.15);
+                    blastCenter.getWorld().playSound(blastCenter, Sound.ENTITY_GENERIC_EXPLODE, 1.5f, 0.8f);
+
+                    // Damage self (3 hearts)
+                    trueDamage(player, SELF_DAMAGE);
+
+                    // Damage nearby enemies
+                    for (LivingEntity entity : TargetUtil.getNearbyLivingEntities(blastCenter, BLAST_RADIUS, player)) {
+                        trueDamage(entity, 8.0, player);
                         entity.setFireTicks(100);
                     }
                 }

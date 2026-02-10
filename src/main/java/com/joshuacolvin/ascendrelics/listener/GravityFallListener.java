@@ -5,6 +5,7 @@ import com.joshuacolvin.ascendrelics.relic.RelicItemFactory;
 import com.joshuacolvin.ascendrelics.relic.RelicType;
 import com.joshuacolvin.ascendrelics.util.ParticleUtil;
 import com.joshuacolvin.ascendrelics.util.TargetUtil;
+import static com.joshuacolvin.ascendrelics.util.TargetUtil.trueDamage;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
@@ -36,7 +37,7 @@ public class GravityFallListener implements Listener {
 
         double totalDamage = 0;
         for (Player target : nearby) {
-            target.damage(aoeDamage, player);
+            trueDamage(target, aoeDamage, player);
             totalDamage += aoeDamage;
         }
 

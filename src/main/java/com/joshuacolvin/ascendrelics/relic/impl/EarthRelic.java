@@ -6,12 +6,13 @@ import com.joshuacolvin.ascendrelics.relic.RelicType;
 import com.joshuacolvin.ascendrelics.relic.ability.AbilityResult;
 import com.joshuacolvin.ascendrelics.relic.ability.ActiveAbility;
 import com.joshuacolvin.ascendrelics.relic.ability.PassiveAbility;
-import com.joshuacolvin.ascendrelics.util.ParticleUtil;
 import com.joshuacolvin.ascendrelics.util.TargetUtil;
+import static com.joshuacolvin.ascendrelics.util.TargetUtil.trueDamage;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.block.Block;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
@@ -20,6 +21,7 @@ import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -85,7 +87,7 @@ public class EarthRelic extends Relic {
 
     private static class FaultLineAbility extends ActiveAbility {
         FaultLineAbility() {
-            super("Fault Line", "Create a line of damaging earth", 12);
+            super("Fault Line", "Create a line of damaging earth", 60);
         }
 
         @Override
@@ -103,7 +105,7 @@ public class EarthRelic extends Relic {
                         0.5, 0.2, 0.5, 0, Material.DIRT.createBlockData());
 
                 for (LivingEntity entity : TargetUtil.getNearbyLivingEntities(point, 2.0, player)) {
-                    entity.damage(6.0, player);
+                    trueDamage(entity, 6.0, player);
                 }
             }
             return AbilityResult.SUCCESS;
@@ -111,8 +113,11 @@ public class EarthRelic extends Relic {
     }
 
     private class WorldAnchorAbility extends ActiveAbility {
+        private static final int RADIUS = 10;
+        private static final double SHELL_THICKNESS = 1.5;
+
         WorldAnchorAbility() {
-            super("World Anchor", "Prevent block changes in 10-block sphere for 15s", 45);
+            super("World Anchor", "Spawn a hollow dirt dome for 15s", 90);
         }
 
         @Override
@@ -126,23 +131,53 @@ public class EarthRelic extends Relic {
                     System.currentTimeMillis() + 15000, trustedSet);
             activeAnchors.put(center, data);
 
-            player.getWorld().playSound(center, Sound.BLOCK_ANVIL_PLACE, 1.0f, 0.8f);
+            // Build the hollow dirt sphere and track placed blocks
+            List<Block> placedBlocks = buildSphere(center);
 
+            player.getWorld().playSound(center, Sound.BLOCK_ANVIL_PLACE, 1.0f, 0.8f);
+            player.getWorld().playSound(center, Sound.ENTITY_ENDER_DRAGON_GROWL, 0.6f, 0.3f);
+
+            // Remove sphere after 15 seconds
             new BukkitRunnable() {
-                int ticks = 0;
                 @Override
                 public void run() {
-                    ticks++;
-                    if (ticks > 150 || data.isExpired()) { // 15 seconds at 2-tick interval... run every 40 ticks
-                        activeAnchors.remove(center);
-                        cancel();
-                        return;
+                    activeAnchors.remove(center);
+                    for (Block block : placedBlocks) {
+                        if (block.getType() == Material.DIRT) {
+                            block.setType(Material.AIR);
+                        }
                     }
-                    ParticleUtil.sphere(center, Particle.DUST_COLOR_TRANSITION, 10.0, 40);
+                    player.getWorld().playSound(center, Sound.BLOCK_STONE_BREAK, 1.0f, 0.5f);
                 }
-            }.runTaskTimer(EarthRelic.this.plugin, 0L, 40L);
+            }.runTaskLater(EarthRelic.this.plugin, 300L); // 15 seconds
 
             return AbilityResult.SUCCESS;
+        }
+
+        private List<Block> buildSphere(Location center) {
+            List<Block> placed = new ArrayList<>();
+            int cx = center.getBlockX();
+            int cy = center.getBlockY();
+            int cz = center.getBlockZ();
+            double innerRadius = RADIUS - SHELL_THICKNESS;
+
+            for (int x = -RADIUS; x <= RADIUS; x++) {
+                for (int y = -RADIUS; y <= RADIUS; y++) {
+                    for (int z = -RADIUS; z <= RADIUS; z++) {
+                        double dist = Math.sqrt(x * x + y * y + z * z);
+                        // Only place blocks in the shell (between inner and outer radius)
+                        if (dist <= RADIUS && dist >= innerRadius) {
+                            Block block = center.getWorld().getBlockAt(cx + x, cy + y, cz + z);
+                            // Only replace air/non-solid blocks
+                            if (!block.getType().isSolid()) {
+                                block.setType(Material.DIRT);
+                                placed.add(block);
+                            }
+                        }
+                    }
+                }
+            }
+            return placed;
         }
     }
 }

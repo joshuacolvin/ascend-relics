@@ -7,6 +7,7 @@ import com.joshuacolvin.ascendrelics.relic.ability.AbilityResult;
 import com.joshuacolvin.ascendrelics.relic.ability.ActiveAbility;
 import com.joshuacolvin.ascendrelics.relic.ability.PassiveAbility;
 import com.joshuacolvin.ascendrelics.util.TargetUtil;
+import static com.joshuacolvin.ascendrelics.util.TargetUtil.trueDamage;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.NamespacedKey;
@@ -71,12 +72,12 @@ public class MetalRelic extends Relic {
 
     private class IronGraspAbility extends ActiveAbility {
         IronGraspAbility() {
-            super("Iron Grasp", "Dash and pull the first entity hit", 10);
+            super("Iron Grasp", "Dash and pull the first entity hit", 60);
         }
 
         @Override
         public AbilityResult execute(Player player, Plugin pluginRef) {
-            player.setVelocity(player.getLocation().getDirection().multiply(1.5));
+            player.setVelocity(player.getLocation().getDirection().multiply(3.0));
             player.getWorld().playSound(player.getLocation(), Sound.ENTITY_IRON_GOLEM_HURT, 1.0f, 1.0f);
 
             new BukkitRunnable() {
@@ -90,7 +91,7 @@ public class MetalRelic extends Relic {
                             player.getLocation(), 2.0, player);
                     if (!nearby.isEmpty()) {
                         LivingEntity target = nearby.get(0);
-                        target.damage(4.0, player);
+                        trueDamage(target, 4.0, player);
                         Vector pull = player.getLocation().toVector()
                                 .subtract(target.getLocation().toVector()).normalize().multiply(1.2);
                         pull.setY(0.3);
@@ -108,7 +109,7 @@ public class MetalRelic extends Relic {
 
     private static class OverrideAbility extends ActiveAbility {
         OverrideAbility() {
-            super("Override", "Disable target's abilities for 8s", 35);
+            super("Override", "Disable target's abilities for 10s", 90);
         }
 
         @Override
@@ -116,11 +117,11 @@ public class MetalRelic extends Relic {
             LivingEntity hit = TargetUtil.raycastLivingEntity(player, 15.0);
             if (!(hit instanceof Player target)) return AbilityResult.NO_TARGET;
 
-            AscendRelics.getInstance().overrideManager().applyOverride(target.getUniqueId(), 8000);
+            AscendRelics.getInstance().overrideManager().applyOverride(target.getUniqueId(), 10000);
             player.getWorld().playSound(target.getLocation(), Sound.ENTITY_IRON_GOLEM_DAMAGE, 1.0f, 0.8f);
             player.getWorld().spawnParticle(Particle.SMOKE,
                     target.getLocation().add(0, 1, 0), 30, 0.5, 0.8, 0.5, 0.05);
-            target.sendMessage(Component.text("Your abilities have been overridden for 8s!", NamedTextColor.RED));
+            target.sendMessage(Component.text("Your abilities have been overridden for 10s!", NamedTextColor.RED));
             return AbilityResult.SUCCESS;
         }
     }

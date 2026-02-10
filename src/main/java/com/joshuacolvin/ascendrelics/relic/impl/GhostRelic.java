@@ -15,6 +15,7 @@ import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
@@ -64,48 +65,71 @@ public class GhostRelic extends Relic {
     }
 
     private static class PhaseStepAbility extends ActiveAbility {
+        private static final int MAX_DISTANCE = 15;
+
         PhaseStepAbility() {
-            super("Phase Step", "Teleport through solid blocks", 8);
+            super("Phase Step", "Teleport forward, phasing through walls", 60);
         }
 
         @Override
         public AbilityResult execute(Player player, Plugin plugin) {
             Location eyeLoc = player.getEyeLocation();
             Vector direction = eyeLoc.getDirection().normalize();
+
+            // Try to find a destination: scan forward up to MAX_DISTANCE blocks
+            // If we hit solid blocks, try to find air on the other side (phase through)
+            // If no solid blocks, teleport to the farthest safe air position
             boolean inSolid = false;
-            Location destination = null;
+            Location lastSafeAir = null;
+            Location phaseDestination = null;
 
-            for (int i = 1; i <= 10; i++) {
+            for (int i = 1; i <= MAX_DISTANCE; i++) {
                 Location check = eyeLoc.clone().add(direction.clone().multiply(i));
-                Block block = check.getBlock();
+                Block feetBlock = check.getBlock();
                 Block headBlock = check.clone().add(0, 1, 0).getBlock();
+                boolean feetClear = !feetBlock.getType().isSolid();
+                boolean headClear = !headBlock.getType().isSolid();
 
-                if (block.getType().isSolid()) {
+                if (feetClear && headClear) {
+                    if (inSolid) {
+                        // Found air on the other side of a wall - phase through
+                        phaseDestination = check.clone();
+                        phaseDestination.setYaw(player.getLocation().getYaw());
+                        phaseDestination.setPitch(player.getLocation().getPitch());
+                        break;
+                    }
+                    // Track the farthest safe open-air position
+                    lastSafeAir = check.clone();
+                    lastSafeAir.setYaw(player.getLocation().getYaw());
+                    lastSafeAir.setPitch(player.getLocation().getPitch());
+                } else {
                     inSolid = true;
-                } else if (inSolid && !block.getType().isSolid() && !headBlock.getType().isSolid()) {
-                    destination = check.clone();
-                    destination.setYaw(player.getLocation().getYaw());
-                    destination.setPitch(player.getLocation().getPitch());
-                    break;
                 }
             }
 
+            // Prefer phase-through destination, fall back to farthest open air
+            Location destination = phaseDestination != null ? phaseDestination : lastSafeAir;
             if (destination == null) return AbilityResult.FAILED;
 
+            // Spawn particles at origin
+            player.getWorld().spawnParticle(Particle.PORTAL, player.getLocation().add(0, 1, 0), 30, 0.5, 1, 0.5, 0.1);
+
             player.teleport(destination);
+
             player.getWorld().playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 1.0f);
-            player.getWorld().spawnParticle(Particle.PORTAL, player.getLocation(), 30, 0.5, 1, 0.5, 0.1);
+            player.getWorld().spawnParticle(Particle.PORTAL, player.getLocation().add(0, 1, 0), 30, 0.5, 1, 0.5, 0.1);
             return AbilityResult.SUCCESS;
         }
     }
 
     private class VanishAbility extends ActiveAbility {
         VanishAbility() {
-            super("Vanish", "Hide your armor from other players for 4s", 20);
+            super("Vanish", "Hide your armor from other players for 4s", 90);
         }
 
         @Override
         public AbilityResult execute(Player player, Plugin pluginRef) {
+            // Send empty equipment to all viewers
             Map<EquipmentSlot, ItemStack> emptyEquipment = new HashMap<>();
             emptyEquipment.put(EquipmentSlot.HEAD, ItemStack.empty());
             emptyEquipment.put(EquipmentSlot.CHEST, ItemStack.empty());
@@ -124,16 +148,37 @@ public class GhostRelic extends Relic {
             player.getWorld().playSound(player.getLocation(), Sound.ENTITY_ILLUSIONER_MIRROR_MOVE, 1.0f, 1.0f);
             player.getWorld().spawnParticle(Particle.CLOUD, player.getLocation(), 20, 0.5, 1, 0.5, 0.05);
 
+            // Restore armor visibility after 4 seconds
             new BukkitRunnable() {
                 @Override
                 public void run() {
                     if (!player.isOnline()) return;
-                    player.updateInventory();
+
+                    // Explicitly send real equipment back to all viewers
+                    PlayerInventory inv = player.getInventory();
+                    Map<EquipmentSlot, ItemStack> realEquipment = new HashMap<>();
+                    realEquipment.put(EquipmentSlot.HEAD, getOrEmpty(inv.getHelmet()));
+                    realEquipment.put(EquipmentSlot.CHEST, getOrEmpty(inv.getChestplate()));
+                    realEquipment.put(EquipmentSlot.LEGS, getOrEmpty(inv.getLeggings()));
+                    realEquipment.put(EquipmentSlot.FEET, getOrEmpty(inv.getBoots()));
+                    realEquipment.put(EquipmentSlot.HAND, getOrEmpty(inv.getItemInMainHand()));
+                    realEquipment.put(EquipmentSlot.OFF_HAND, getOrEmpty(inv.getItemInOffHand()));
+
+                    for (Player viewer : player.getWorld().getPlayers()) {
+                        if (!viewer.equals(player)) {
+                            viewer.sendEquipmentChange(player, realEquipment);
+                        }
+                    }
+
                     MessageUtil.info(player, "Vanish has worn off.");
                 }
             }.runTaskLater(GhostRelic.this.plugin, 80L);
 
             return AbilityResult.SUCCESS;
+        }
+
+        private ItemStack getOrEmpty(ItemStack item) {
+            return item != null ? item : ItemStack.empty();
         }
     }
 }

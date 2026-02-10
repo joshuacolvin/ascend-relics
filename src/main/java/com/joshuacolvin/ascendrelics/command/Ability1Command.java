@@ -31,6 +31,9 @@ public class Ability1Command implements CommandExecutor {
 
         RelicType type = RelicItemFactory.identifyRelic(player.getInventory().getItemInMainHand());
         if (type == null) {
+            type = RelicItemFactory.identifyRelic(player.getInventory().getItemInOffHand());
+        }
+        if (type == null) {
             MessageUtil.error(player, "You must be holding a relic to use an ability!");
             return true;
         }

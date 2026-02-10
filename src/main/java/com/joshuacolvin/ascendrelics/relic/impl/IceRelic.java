@@ -7,56 +7,101 @@ import com.joshuacolvin.ascendrelics.relic.ability.AbilityResult;
 import com.joshuacolvin.ascendrelics.relic.ability.ActiveAbility;
 import com.joshuacolvin.ascendrelics.relic.ability.PassiveAbility;
 import com.joshuacolvin.ascendrelics.util.TargetUtil;
+import static com.joshuacolvin.ascendrelics.util.TargetUtil.trueDamage;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
-import org.bukkit.entity.Snowball;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
+import java.util.List;
+import java.util.Set;
+
 public class IceRelic extends Relic {
+
+    private static final Set<Material> FREEZABLE_GROUND = Set.of(
+            Material.GRASS_BLOCK, Material.DIRT, Material.DIRT_PATH,
+            Material.COARSE_DIRT, Material.ROOTED_DIRT, Material.MUD,
+            Material.STONE, Material.COBBLESTONE, Material.DEEPSLATE,
+            Material.SAND, Material.RED_SAND, Material.GRAVEL,
+            Material.CLAY, Material.PODZOL, Material.MYCELIUM
+    );
+
+    private static final Set<Material> WATER_LIKE = Set.of(
+            Material.WATER
+    );
 
     private final AscendRelics plugin;
     private final IcePassive passive = new IcePassive();
-    private final FreezeFrameAbility ability1 = new FreezeFrameAbility();
-    private final HailstormAbility ability2;
+    private final FreezeFrameAbility ability1;
+    private final SnowballFightAbility ability2;
 
     public IceRelic(AscendRelics plugin) {
         super(RelicType.ICE);
         this.plugin = plugin;
-        this.ability2 = new HailstormAbility();
+        this.ability1 = new FreezeFrameAbility();
+        this.ability2 = new SnowballFightAbility();
     }
 
     @Override public PassiveAbility passive() { return passive; }
     @Override public ActiveAbility ability1() { return ability1; }
     @Override public ActiveAbility ability2() { return ability2; }
 
+    /**
+     * Applies a full freeze to a target: no movement, no camera, no knockback, no jump, no attack.
+     */
+    public static void applyFreeze(LivingEntity target, int durationTicks, Plugin plugin) {
+        target.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, durationTicks, 126, false, false, true));
+        target.addPotionEffect(new PotionEffect(PotionEffectType.MINING_FATIGUE, durationTicks, 126, false, false, true));
+        target.addPotionEffect(new PotionEffect(PotionEffectType.JUMP_BOOST, durationTicks, 127, false, false, true));
+
+        // Lock camera by saving initial rotation and forcing it every tick
+        if (target instanceof Player playerTarget) {
+            float lockedYaw = playerTarget.getLocation().getYaw();
+            float lockedPitch = playerTarget.getLocation().getPitch();
+
+            new BukkitRunnable() {
+                int ticks = 0;
+                @Override
+                public void run() {
+                    ticks++;
+                    if (ticks > durationTicks || !playerTarget.isOnline()) {
+                        cancel();
+                        return;
+                    }
+                    playerTarget.setRotation(lockedYaw, lockedPitch);
+                }
+            }.runTaskTimer(plugin, 0L, 1L);
+        }
+    }
+
     private static class IcePassive implements PassiveAbility {
         @Override public String name() { return "Frost Touch"; }
-        @Override public String description() { return "5% crit chance to briefly freeze targets"; }
+        @Override public String description() { return "5% crit chance to fully freeze targets"; }
         @Override public void apply(Player player) {}
         @Override public void remove(Player player) {}
         @Override public void tick(Player player) {}
     }
 
-    private static class FreezeFrameAbility extends ActiveAbility {
+    private class FreezeFrameAbility extends ActiveAbility {
         FreezeFrameAbility() {
-            super("Freeze Frame", "Freeze a target player in place for 4s", 15);
+            super("Freeze Frame", "Completely freeze a target for 6s", 60);
         }
 
         @Override
-        public AbilityResult execute(Player player, Plugin plugin) {
+        public AbilityResult execute(Player player, Plugin pluginRef) {
             LivingEntity target = TargetUtil.raycastLivingEntity(player, 30.0);
             if (target == null) return AbilityResult.NO_TARGET;
 
-            target.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 80, 126, false, true, true));
-            target.addPotionEffect(new PotionEffect(PotionEffectType.MINING_FATIGUE, 80, 126, false, true, true));
-            target.addPotionEffect(new PotionEffect(PotionEffectType.JUMP_BOOST, 80, 127, false, true, true));
+            applyFreeze(target, 120, pluginRef); // 6 seconds = 120 ticks
 
             player.getWorld().playSound(target.getLocation(), Sound.BLOCK_GLASS_BREAK, 1.0f, 1.5f);
             target.getWorld().spawnParticle(Particle.SNOWFLAKE, target.getLocation().add(0, 1, 0),
@@ -65,35 +110,121 @@ public class IceRelic extends Relic {
         }
     }
 
-    private class HailstormAbility extends ActiveAbility {
-        HailstormAbility() {
-            super("Hailstorm", "Rain snowballs in a target area", 20);
+    private class SnowballFightAbility extends ActiveAbility {
+        SnowballFightAbility() {
+            super("Snowball Fight", "Shoot 3 snowballs that freeze terrain or damage players", 90);
         }
 
         @Override
         public AbilityResult execute(Player player, Plugin pluginRef) {
-            Location target = TargetUtil.raycastLocation(player, 15.0);
-            player.getWorld().playSound(player.getLocation(), Sound.WEATHER_RAIN, 1.0f, 0.5f);
+            Location eye = player.getEyeLocation();
+            Vector direction = eye.getDirection().normalize();
 
-            new BukkitRunnable() {
-                int count = 0;
-                @Override
-                public void run() {
-                    if (count >= 10) { cancel(); return; }
-                    count++;
+            player.getWorld().playSound(player.getLocation(), Sound.ENTITY_SNOWBALL_THROW, 1.0f, 0.8f);
 
-                    Location spawnLoc = target.clone().add(
-                            (Math.random() - 0.5) * 6,
-                            10,
-                            (Math.random() - 0.5) * 6
-                    );
-                    Snowball snowball = player.getWorld().spawn(spawnLoc, Snowball.class);
-                    snowball.setShooter(player);
-                    snowball.setVelocity(new Vector(0, -1.5, 0));
-                }
-            }.runTaskTimer(IceRelic.this.plugin, 0L, 2L);
+            // Fire 3 snowballs with slight delay between each
+            for (int shot = 0; shot < 3; shot++) {
+                final int shotIndex = shot;
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        if (!player.isOnline()) return;
+                        // Recalculate direction from current look for each shot
+                        Location currentEye = player.getEyeLocation();
+                        Vector dir = currentEye.getDirection().normalize();
+                        launchSnowball(player, currentEye.clone(), dir, pluginRef);
+                        player.getWorld().playSound(player.getLocation(), Sound.ENTITY_SNOWBALL_THROW, 0.8f, 1.0f + shotIndex * 0.2f);
+                    }
+                }.runTaskLater(pluginRef, shot * 5L); // 5 ticks apart
+            }
 
             return AbilityResult.SUCCESS;
+        }
+
+        private void launchSnowball(Player shooter, Location start, Vector direction, Plugin pluginRef) {
+            new BukkitRunnable() {
+                Location current = start.clone();
+                int ticks = 0;
+
+                @Override
+                public void run() {
+                    ticks++;
+                    if (ticks > 60) { // Max 3 seconds of travel
+                        cancel();
+                        return;
+                    }
+
+                    // Move the snowball forward
+                    Vector step = direction.clone().multiply(1.5);
+                    current.add(step);
+
+                    // Spawn snow particle ball at current position
+                    current.getWorld().spawnParticle(Particle.SNOWFLAKE, current, 8, 0.2, 0.2, 0.2, 0.01);
+                    current.getWorld().spawnParticle(Particle.BLOCK, current, 3, 0.15, 0.15, 0.15, 0,
+                            Material.SNOW_BLOCK.createBlockData());
+
+                    // Check for player hit
+                    for (LivingEntity entity : TargetUtil.getNearbyLivingEntities(current, 1.2, shooter)) {
+                        if (entity instanceof Player) {
+                            trueDamage(entity, 4.0, shooter); // 2 hearts
+                        } else {
+                            trueDamage(entity, 3.0, shooter); // 1.5 hearts for non-players
+                        }
+                        entity.getWorld().spawnParticle(Particle.SNOWFLAKE,
+                                entity.getLocation().add(0, 1, 0), 20, 0.5, 0.5, 0.5, 0.1);
+                        entity.getWorld().playSound(entity.getLocation(), Sound.BLOCK_SNOW_BREAK, 1.0f, 1.0f);
+                        cancel();
+                        return;
+                    }
+
+                    // Check for block hit
+                    Block block = current.getBlock();
+                    if (block.getType().isSolid()) {
+                        // Ground impact - deal 1.5 hearts AoE and freeze terrain
+                        List<LivingEntity> nearby = TargetUtil.getNearbyLivingEntities(current, 3.0, shooter);
+                        for (LivingEntity entity : nearby) {
+                            trueDamage(entity, 3.0, shooter); // 1.5 hearts
+                        }
+
+                        freezeTerrain(current, 4);
+
+                        current.getWorld().spawnParticle(Particle.SNOWFLAKE, current, 30, 1.5, 0.5, 1.5, 0.1);
+                        current.getWorld().playSound(current, Sound.BLOCK_SNOW_BREAK, 1.0f, 0.5f);
+                        cancel();
+                    }
+                }
+            }.runTaskTimer(pluginRef, 0L, 1L);
+        }
+
+        private void freezeTerrain(Location center, int radius) {
+            int cx = center.getBlockX();
+            int cy = center.getBlockY();
+            int cz = center.getBlockZ();
+
+            for (int x = -radius; x <= radius; x++) {
+                for (int z = -radius; z <= radius; z++) {
+                    if (x * x + z * z > radius * radius) continue;
+
+                    // Find the surface block near impact height
+                    for (int y = 2; y >= -2; y--) {
+                        Block block = center.getWorld().getBlockAt(cx + x, cy + y, cz + z);
+                        Block above = block.getRelative(BlockFace.UP);
+
+                        if (FREEZABLE_GROUND.contains(block.getType()) && !above.getType().isSolid()) {
+                            block.setType(Material.SNOW_BLOCK);
+                            if (above.getType() == Material.AIR) {
+                                above.setType(Material.SNOW);
+                            }
+                            break;
+                        }
+
+                        if (WATER_LIKE.contains(block.getType())) {
+                            block.setType(Material.ICE);
+                            break;
+                        }
+                    }
+                }
+            }
         }
     }
 }

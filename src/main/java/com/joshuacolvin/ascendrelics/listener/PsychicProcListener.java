@@ -4,7 +4,8 @@ import com.joshuacolvin.ascendrelics.AscendRelics;
 import com.joshuacolvin.ascendrelics.relic.RelicItemFactory;
 import com.joshuacolvin.ascendrelics.relic.RelicType;
 import org.bukkit.Bukkit;
-import org.bukkit.Location;
+import org.bukkit.Particle;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -13,7 +14,6 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.util.Vector;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -23,7 +23,14 @@ import java.util.concurrent.ThreadLocalRandom;
 public class PsychicProcListener implements Listener {
 
     private final AscendRelics plugin;
-    private final Map<UUID, AttackInfo> recentAttacks = new HashMap<>();
+
+    // Tracks when the next 5% roll can happen for each psychic player
+    private final Map<UUID, Long> nextRollTime = new HashMap<>();
+    // Tracks the last attacker of each psychic player
+    private final Map<UUID, UUID> lastAttacker = new HashMap<>();
+
+    private static final long ROLL_INTERVAL_MS = 10000; // 10 seconds between rolls
+    private static final int LOCK_DURATION_TICKS = 60; // 3 seconds camera lock
 
     public PsychicProcListener(AscendRelics plugin) {
         this.plugin = plugin;
@@ -32,48 +39,55 @@ public class PsychicProcListener implements Listener {
         new BukkitRunnable() {
             @Override
             public void run() {
-                var iterator = recentAttacks.entrySet().iterator();
+                long now = System.currentTimeMillis();
+                var iterator = lastAttacker.entrySet().iterator();
                 while (iterator.hasNext()) {
                     var entry = iterator.next();
-                    AttackInfo info = entry.getValue();
+                    UUID psychicId = entry.getKey();
+                    UUID attackerId = entry.getValue();
 
-                    if (System.currentTimeMillis() - info.timestamp > 10000) {
-                        iterator.remove();
-                        continue;
-                    }
+                    // Check if enough time has passed for a roll
+                    Long nextRoll = nextRollTime.get(psychicId);
+                    if (nextRoll != null && now < nextRoll) continue;
 
-                    Player psychicPlayer = Bukkit.getPlayer(entry.getKey());
-                    Player attacker = Bukkit.getPlayer(info.attackerUUID);
+                    Player psychicPlayer = Bukkit.getPlayer(psychicId);
+                    Player attacker = Bukkit.getPlayer(attackerId);
                     if (psychicPlayer == null || attacker == null) {
                         iterator.remove();
+                        nextRollTime.remove(psychicId);
                         continue;
                     }
 
+                    // Roll 5% chance
                     if (ThreadLocalRandom.current().nextDouble() < 0.05) {
-                        // Proc: camera lock
+                        // Lock camera in place for 3 seconds
+                        float lockedYaw = attacker.getLocation().getYaw();
+                        float lockedPitch = attacker.getLocation().getPitch();
+
                         attacker.addPotionEffect(new PotionEffect(
-                                PotionEffectType.BLINDNESS, 10, 0, false, true, true));
+                                PotionEffectType.BLINDNESS, 10, 0, false, false, true));
+                        attacker.getWorld().playSound(attacker.getLocation(),
+                                Sound.ENTITY_ENDERMAN_SCREAM, 0.6f, 1.5f);
+                        attacker.getWorld().spawnParticle(Particle.WITCH,
+                                attacker.getLocation().add(0, 1, 0), 15, 0.3, 0.5, 0.3, 0.05);
 
                         new BukkitRunnable() {
                             int ticks = 0;
                             @Override
                             public void run() {
                                 ticks++;
-                                if (ticks > 60 || !attacker.isOnline() || !psychicPlayer.isOnline()) {
+                                if (ticks > LOCK_DURATION_TICKS || !attacker.isOnline()) {
                                     cancel();
                                     return;
                                 }
-                                Location attackerLoc = attacker.getLocation();
-                                Location targetLoc = psychicPlayer.getLocation();
-                                Vector dir = targetLoc.toVector().subtract(attackerLoc.toVector()).normalize();
-                                float yaw = (float) Math.toDegrees(Math.atan2(-dir.getX(), dir.getZ()));
-                                float pitch = (float) Math.toDegrees(-Math.asin(dir.getY()));
-                                attacker.setRotation(yaw, pitch);
+                                attacker.setRotation(lockedYaw, lockedPitch);
                             }
                         }.runTaskTimer(plugin, 0L, 1L);
-
-                        iterator.remove();
                     }
+
+                    // Whether it procced or not, wait another 10 seconds before next roll
+                    nextRollTime.put(psychicId, now + ROLL_INTERVAL_MS);
+                    iterator.remove(); // Clear attacker, needs a fresh hit to retrigger
                 }
             }
         }.runTaskTimer(plugin, 20L, 20L);
@@ -85,7 +99,12 @@ public class PsychicProcListener implements Listener {
         if (!(event.getDamager() instanceof Player attacker)) return;
         if (!hasPsychicRelic(victim)) return;
 
-        recentAttacks.put(victim.getUniqueId(), new AttackInfo(attacker.getUniqueId()));
+        lastAttacker.put(victim.getUniqueId(), attacker.getUniqueId());
+
+        // If no roll is scheduled yet, allow immediate first roll
+        if (!nextRollTime.containsKey(victim.getUniqueId())) {
+            nextRollTime.put(victim.getUniqueId(), 0L);
+        }
     }
 
     private boolean hasPsychicRelic(Player player) {
@@ -93,15 +112,5 @@ public class PsychicProcListener implements Listener {
             if (RelicItemFactory.identifyRelic(item) == RelicType.PSYCHIC) return true;
         }
         return false;
-    }
-
-    private static class AttackInfo {
-        final UUID attackerUUID;
-        final long timestamp;
-
-        AttackInfo(UUID attacker) {
-            this.attackerUUID = attacker;
-            this.timestamp = System.currentTimeMillis();
-        }
     }
 }

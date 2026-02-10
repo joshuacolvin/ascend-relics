@@ -8,6 +8,7 @@ import com.joshuacolvin.ascendrelics.relic.ability.ActiveAbility;
 import com.joshuacolvin.ascendrelics.relic.ability.PassiveAbility;
 import com.joshuacolvin.ascendrelics.util.ParticleUtil;
 import com.joshuacolvin.ascendrelics.util.TargetUtil;
+import static com.joshuacolvin.ascendrelics.util.TargetUtil.trueDamage;
 import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
@@ -20,7 +21,14 @@ import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
 public class EnergyRelic extends Relic {
+
+    /** Players currently in Overdrive (cannot die). */
+    public static final Set<UUID> overdriveActive = ConcurrentHashMap.newKeySet();
 
     private final AscendRelics plugin;
     private final EnergyPassive passive = new EnergyPassive();
@@ -54,7 +62,7 @@ public class EnergyRelic extends Relic {
 
     private class PulseBeamAbility extends ActiveAbility {
         PulseBeamAbility() {
-            super("Pulse Beam", "Fire an energy beam for 6 seconds", 10);
+            super("Pulse Beam", "Fire an energy beam for 6 seconds", 60);
         }
 
         @Override
@@ -86,7 +94,7 @@ public class EnergyRelic extends Relic {
                             e -> e instanceof LivingEntity && e != player
                     );
                     if (result != null && result.getHitEntity() instanceof LivingEntity target) {
-                        target.damage(3.0, player);
+                        trueDamage(target, 3.0, player);
                     }
                 }
             }.runTaskTimer(EnergyRelic.this.plugin, 0L, 5L);
@@ -97,7 +105,7 @@ public class EnergyRelic extends Relic {
 
     private class OverdriveAbility extends ActiveAbility {
         OverdriveAbility() {
-            super("Overdrive", "Speed III + Haste II for 8s, then Slowness I for 3s", 25);
+            super("Overdrive", "Speed III + Haste II for 8s (can't die), then Slowness I for 3s", 90);
         }
 
         @Override
@@ -106,9 +114,14 @@ public class EnergyRelic extends Relic {
             player.addPotionEffect(new PotionEffect(PotionEffectType.HASTE, 160, 1, false, true, true));
             player.getWorld().playSound(player.getLocation(), Sound.ENTITY_BLAZE_SHOOT, 1.0f, 2.0f);
 
+            // Mark player as unkillable
+            overdriveActive.add(player.getUniqueId());
+
+            // End overdrive after 8 seconds
             new BukkitRunnable() {
                 @Override
                 public void run() {
+                    overdriveActive.remove(player.getUniqueId());
                     if (!player.isOnline()) return;
                     player.addPotionEffect(new PotionEffect(
                             PotionEffectType.SLOWNESS, 60, 0, false, true, true));

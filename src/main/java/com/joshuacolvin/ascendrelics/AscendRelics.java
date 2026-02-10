@@ -78,7 +78,7 @@ public class AscendRelics extends JavaPlugin {
         Ability1Command ability1Cmd = new Ability1Command(this);
         Ability2Command ability2Cmd = new Ability2Command(this);
         TrustCommand trustCmd = new TrustCommand(this);
-        GiveAllCommand giveAllCmd = new GiveAllCommand();
+        GiveAllCommand giveAllCmd = new GiveAllCommand(this);
         CooldownResetCommand cooldownCmd = new CooldownResetCommand(this);
         LockCommand lockCmd = new LockCommand(this);
         UnlockCommand unlockCmd = new UnlockCommand(this);
@@ -103,10 +103,14 @@ public class AscendRelics extends JavaPlugin {
         pm.registerEvents(new ChainStrikeListener(), this);
         pm.registerEvents(new AcidHitTracker(this), this);
         pm.registerEvents(new GravityFallListener(this), this);
-        pm.registerEvents(new FreezeListener(), this);
+        pm.registerEvents(new FreezeListener(this), this);
         pm.registerEvents(new IceCritListener(this), this);
         pm.registerEvents(new LightningProcListener(this), this);
         pm.registerEvents(new PsychicProcListener(this), this);
+        pm.registerEvents(new OverdriveListener(), this);
+        pm.registerEvents(new GuardianPulseListener(), this);
+        pm.registerEvents(new TidalGuardListener(), this);
+        pm.registerEvents(new DescendentVulnerabilityListener(), this);
     }
 
     private void startTasks() {

@@ -1,7 +1,8 @@
 package com.joshuacolvin.ascendrelics.command;
 
+import com.joshuacolvin.ascendrelics.AscendRelics;
+import com.joshuacolvin.ascendrelics.relic.Relic;
 import com.joshuacolvin.ascendrelics.relic.RelicItemFactory;
-import com.joshuacolvin.ascendrelics.relic.RelicType;
 import com.joshuacolvin.ascendrelics.util.MessageUtil;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -10,6 +11,12 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
 public class GiveAllCommand implements CommandExecutor {
+
+    private final AscendRelics plugin;
+
+    public GiveAllCommand(AscendRelics plugin) {
+        this.plugin = plugin;
+    }
 
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command,
@@ -24,10 +31,12 @@ public class GiveAllCommand implements CommandExecutor {
             return true;
         }
 
-        for (RelicType type : RelicType.values()) {
-            player.getInventory().addItem(RelicItemFactory.createRelic(type));
+        int count = 0;
+        for (Relic relic : plugin.relicRegistry().all()) {
+            player.getInventory().addItem(RelicItemFactory.createRelic(relic));
+            count++;
         }
-        MessageUtil.success(player, "All " + RelicType.values().length + " relics have been given to you!");
+        MessageUtil.success(player, "All " + count + " relics have been given to you!");
         return true;
     }
 }

@@ -14,10 +14,14 @@ import org.bukkit.Sound;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
+import java.util.Collections;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 public class PsychicRelic extends Relic {
@@ -48,7 +52,7 @@ public class PsychicRelic extends Relic {
 
     private class MindRewriteAbility extends ActiveAbility {
         MindRewriteAbility() {
-            super("Mind Rewrite", "Invert target's movement for 5s", 20);
+            super("Mind Rewrite", "Scramble target's hotbar and invert movement for 5s", 60);
         }
 
         @Override
@@ -60,11 +64,21 @@ public class PsychicRelic extends Relic {
             target.getWorld().spawnParticle(Particle.WITCH,
                     target.getLocation().add(0, 1, 0), 20, 0.5, 0.8, 0.5, 0.05);
 
-            // Swap mainhand and offhand
-            ItemStack mainHand = target.getInventory().getItemInMainHand().clone();
-            ItemStack offHand = target.getInventory().getItemInOffHand().clone();
-            target.getInventory().setItemInMainHand(offHand);
-            target.getInventory().setItemInOffHand(mainHand);
+            // Save original hotbar (slots 0-8)
+            PlayerInventory inv = target.getInventory();
+            ItemStack[] originalHotbar = new ItemStack[9];
+            for (int i = 0; i < 9; i++) {
+                ItemStack item = inv.getItem(i);
+                originalHotbar[i] = item != null ? item.clone() : null;
+            }
+
+            // Shuffle the hotbar
+            List<Integer> indices = new ArrayList<>();
+            for (int i = 0; i < 9; i++) indices.add(i);
+            Collections.shuffle(indices);
+            for (int i = 0; i < 9; i++) {
+                inv.setItem(i, originalHotbar[indices.get(i)]);
+            }
 
             MessageUtil.error(target, "Your mind has been rewritten!");
 
@@ -74,12 +88,11 @@ public class PsychicRelic extends Relic {
                 public void run() {
                     ticks++;
                     if (ticks > 100 || !target.isOnline()) { // 5 seconds
-                        // Swap back
+                        // Restore original hotbar
                         if (target.isOnline()) {
-                            ItemStack mh = target.getInventory().getItemInMainHand().clone();
-                            ItemStack oh = target.getInventory().getItemInOffHand().clone();
-                            target.getInventory().setItemInMainHand(oh);
-                            target.getInventory().setItemInOffHand(mh);
+                            for (int i = 0; i < 9; i++) {
+                                target.getInventory().setItem(i, originalHotbar[i]);
+                            }
                             MessageUtil.info(target, "Mind Rewrite has worn off.");
                         }
                         cancel();
@@ -109,7 +122,7 @@ public class PsychicRelic extends Relic {
 
     private static class ThoughtTheftAbility extends ActiveAbility {
         ThoughtTheftAbility() {
-            super("Thought Theft", "Copy and use target's last ability", 30);
+            super("Thought Theft", "Copy and use target's last ability", 90);
         }
 
         @Override
