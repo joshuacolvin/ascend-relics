@@ -10,8 +10,12 @@ import com.joshuacolvin.ascendrelics.util.ParticleUtil;
 import com.joshuacolvin.ascendrelics.util.TargetUtil;
 import static com.joshuacolvin.ascendrelics.util.TargetUtil.trueDamage;
 import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
+import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
@@ -29,6 +33,9 @@ public class EnergyRelic extends Relic {
 
     /** Players currently in Overdrive (cannot die). */
     public static final Set<UUID> overdriveActive = ConcurrentHashMap.newKeySet();
+
+    private static final NamespacedKey OVERDRIVE_ATTACK_KEY =
+            NamespacedKey.fromString("ascendrelics:overdrive_attack");
 
     private final AscendRelics plugin;
     private final EnergyPassive passive = new EnergyPassive();
@@ -74,7 +81,7 @@ public class EnergyRelic extends Relic {
                 @Override
                 public void run() {
                     ticks++;
-                    if (ticks > 24 || !player.isOnline()) {
+                    if (ticks > 120 || !player.isOnline()) {
                         cancel();
                         return;
                     }
@@ -94,18 +101,22 @@ public class EnergyRelic extends Relic {
                             e -> e instanceof LivingEntity && e != player
                     );
                     if (result != null && result.getHitEntity() instanceof LivingEntity target) {
-                        trueDamage(target, 3.0, player);
+                        trueDamage(target, 2.0, player);
                     }
                 }
-            }.runTaskTimer(EnergyRelic.this.plugin, 0L, 5L);
+            }.runTaskTimer(EnergyRelic.this.plugin, 0L, 20L);
 
             return AbilityResult.SUCCESS;
         }
     }
 
     private class OverdriveAbility extends ActiveAbility {
+        private static final AttributeModifier ATTACK_MODIFIER = new AttributeModifier(
+                OVERDRIVE_ATTACK_KEY, 2.0, AttributeModifier.Operation.ADD_NUMBER
+        );
+
         OverdriveAbility() {
-            super("Overdrive", "Speed III + Haste II for 8s (can't die), then Slowness I for 3s", 90);
+            super("Overdrive", "Speed III + Haste II + Attack Damage for 8s, then debuffs", 90);
         }
 
         @Override
@@ -113,6 +124,12 @@ public class EnergyRelic extends Relic {
             player.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, 160, 2, false, true, true));
             player.addPotionEffect(new PotionEffect(PotionEffectType.HASTE, 160, 1, false, true, true));
             player.getWorld().playSound(player.getLocation(), Sound.ENTITY_BLAZE_SHOOT, 1.0f, 2.0f);
+
+            // Add +2 attack damage
+            AttributeInstance attackAttr = player.getAttribute(Attribute.ATTACK_DAMAGE);
+            if (attackAttr != null && !attackAttr.getModifiers().contains(ATTACK_MODIFIER)) {
+                attackAttr.addModifier(ATTACK_MODIFIER);
+            }
 
             // Mark player as unkillable
             overdriveActive.add(player.getUniqueId());
@@ -123,8 +140,16 @@ public class EnergyRelic extends Relic {
                 public void run() {
                     overdriveActive.remove(player.getUniqueId());
                     if (!player.isOnline()) return;
+
+                    // Remove attack damage modifier
+                    AttributeInstance attr = player.getAttribute(Attribute.ATTACK_DAMAGE);
+                    if (attr != null) attr.removeModifier(ATTACK_MODIFIER);
+
+                    // Apply debuffs: Slowness II and Weakness II for 3 seconds
                     player.addPotionEffect(new PotionEffect(
-                            PotionEffectType.SLOWNESS, 60, 0, false, true, true));
+                            PotionEffectType.SLOWNESS, 60, 1, false, true, true));
+                    player.addPotionEffect(new PotionEffect(
+                            PotionEffectType.WEAKNESS, 60, 1, false, true, true));
                 }
             }.runTaskLater(EnergyRelic.this.plugin, 160L);
 

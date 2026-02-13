@@ -85,29 +85,43 @@ public class EarthRelic extends Relic {
         }
     }
 
-    private static class FaultLineAbility extends ActiveAbility {
+    private class FaultLineAbility extends ActiveAbility {
         FaultLineAbility() {
             super("Fault Line", "Create a line of damaging earth", 60);
         }
 
         @Override
-        public AbilityResult execute(Player player, Plugin plugin) {
+        public AbilityResult execute(Player player, Plugin pluginRef) {
             Location start = player.getLocation();
             Vector direction = start.getDirection().setY(0).normalize();
 
             player.getWorld().playSound(start, Sound.ENTITY_ENDER_DRAGON_GROWL, 0.8f, 0.5f);
 
-            for (int i = 1; i <= 15; i++) {
-                Location point = start.clone().add(direction.clone().multiply(i));
-                point.setY(start.getY());
+            // Animated wave: 1 point per 2 ticks over 15 blocks
+            new BukkitRunnable() {
+                int step = 1;
+                @Override
+                public void run() {
+                    if (step > 15 || !player.isOnline()) {
+                        cancel();
+                        return;
+                    }
 
-                player.getWorld().spawnParticle(Particle.BLOCK, point, 5,
-                        0.5, 0.2, 0.5, 0, Material.DIRT.createBlockData());
+                    Location point = start.clone().add(direction.clone().multiply(step));
+                    point.setY(start.getY());
 
-                for (LivingEntity entity : TargetUtil.getNearbyLivingEntities(point, 2.0, player)) {
-                    trueDamage(entity, 6.0, player);
+                    player.getWorld().spawnParticle(Particle.BLOCK, point, 5,
+                            0.5, 0.2, 0.5, 0, Material.DIRT.createBlockData());
+
+                    for (LivingEntity entity : TargetUtil.getNearbyLivingEntities(point, 2.0, player)) {
+                        trueDamage(entity, 4.0, player);
+                        entity.setVelocity(new Vector(0, 0.8, 0));
+                    }
+
+                    step++;
                 }
-            }
+            }.runTaskTimer(EarthRelic.this.plugin, 0L, 2L);
+
             return AbilityResult.SUCCESS;
         }
     }
@@ -168,8 +182,8 @@ public class EarthRelic extends Relic {
                         // Only place blocks in the shell (between inner and outer radius)
                         if (dist <= RADIUS && dist >= innerRadius) {
                             Block block = center.getWorld().getBlockAt(cx + x, cy + y, cz + z);
-                            // Only replace air/non-solid blocks
-                            if (!block.getType().isSolid()) {
+                            // Only replace air blocks
+                            if (block.getType().isAir()) {
                                 block.setType(Material.DIRT);
                                 placed.add(block);
                             }

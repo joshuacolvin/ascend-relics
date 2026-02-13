@@ -26,8 +26,8 @@ import java.util.List;
 
 public class MetalRelic extends Relic {
 
-    private static final NamespacedKey TOUGHNESS_KEY =
-            NamespacedKey.fromString("ascendrelics:metal_toughness");
+    private static final NamespacedKey ARMOR_KEY =
+            NamespacedKey.fromString("ascendrelics:metal_armor");
 
     private final AscendRelics plugin;
     private final MetalPassive passive = new MetalPassive();
@@ -46,25 +46,25 @@ public class MetalRelic extends Relic {
     @Override public ActiveAbility ability2() { return ability2; }
 
     private static class MetalPassive implements PassiveAbility {
-        private static final AttributeModifier TOUGHNESS_MODIFIER = new AttributeModifier(
-                TOUGHNESS_KEY, 4.0, AttributeModifier.Operation.ADD_NUMBER
+        private static final AttributeModifier ARMOR_MODIFIER = new AttributeModifier(
+                ARMOR_KEY, 2.0, AttributeModifier.Operation.ADD_NUMBER
         );
 
         @Override public String name() { return "Metal Plating"; }
-        @Override public String description() { return "+4 Armor Toughness"; }
+        @Override public String description() { return "+2 Armor"; }
 
         @Override
         public void apply(Player player) {
-            AttributeInstance attr = player.getAttribute(Attribute.ARMOR_TOUGHNESS);
-            if (attr != null && !attr.getModifiers().contains(TOUGHNESS_MODIFIER)) {
-                attr.addModifier(TOUGHNESS_MODIFIER);
+            AttributeInstance attr = player.getAttribute(Attribute.ARMOR);
+            if (attr != null && !attr.getModifiers().contains(ARMOR_MODIFIER)) {
+                attr.addModifier(ARMOR_MODIFIER);
             }
         }
 
         @Override
         public void remove(Player player) {
-            AttributeInstance attr = player.getAttribute(Attribute.ARMOR_TOUGHNESS);
-            if (attr != null) attr.removeModifier(TOUGHNESS_MODIFIER);
+            AttributeInstance attr = player.getAttribute(Attribute.ARMOR);
+            if (attr != null) attr.removeModifier(ARMOR_MODIFIER);
         }
 
         @Override public void tick(Player player) {}
@@ -91,7 +91,7 @@ public class MetalRelic extends Relic {
                             player.getLocation(), 2.0, player);
                     if (!nearby.isEmpty()) {
                         LivingEntity target = nearby.get(0);
-                        trueDamage(target, 4.0, player);
+                        trueDamage(target, 6.0, player);
                         Vector pull = player.getLocation().toVector()
                                 .subtract(target.getLocation().toVector()).normalize().multiply(1.2);
                         pull.setY(0.3);

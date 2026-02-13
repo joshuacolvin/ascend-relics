@@ -6,6 +6,9 @@ import com.joshuacolvin.ascendrelics.relic.RelicType;
 import com.joshuacolvin.ascendrelics.util.ParticleUtil;
 import com.joshuacolvin.ascendrelics.util.TargetUtil;
 import static com.joshuacolvin.ascendrelics.util.TargetUtil.trueDamage;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
@@ -45,6 +48,14 @@ public class GravityFallListener implements Listener {
             double heartsDealt = totalDamage / 2.0;
             double chargeGain = heartsDealt * 15.0;
             plugin.ascendentMeterManager().addCharge(player.getUniqueId(), chargeGain);
+
+            // Display meter on action bar
+            if (plugin.ascendentMeterManager().isFullyCharged(player.getUniqueId())) {
+                player.sendActionBar(Component.text("Ascendent Meter: FULLY CHARGED!", NamedTextColor.GOLD, TextDecoration.BOLD));
+            } else {
+                int percent = (int) (plugin.ascendentMeterManager().getChargePercent(player.getUniqueId()) * 100);
+                player.sendActionBar(Component.text("Ascendent Meter: " + percent + "%", NamedTextColor.LIGHT_PURPLE));
+            }
         }
 
         ParticleUtil.ring(player.getLocation(), Particle.CRIT, 4.0, 30);

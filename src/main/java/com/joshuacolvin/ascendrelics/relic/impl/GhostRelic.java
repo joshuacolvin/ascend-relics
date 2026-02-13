@@ -13,6 +13,7 @@ import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
+import org.bukkit.Bukkit;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
@@ -75,16 +76,26 @@ public class GhostRelic extends Relic {
         public AbilityResult execute(Player player, Plugin plugin) {
             Location eyeLoc = player.getEyeLocation();
             Vector direction = eyeLoc.getDirection().normalize();
+            // Horizontal-only direction for open-air movement
+            Vector horizontalDir = direction.clone().setY(0).normalize();
 
-            // Try to find a destination: scan forward up to MAX_DISTANCE blocks
-            // If we hit solid blocks, try to find air on the other side (phase through)
-            // If no solid blocks, teleport to the farthest safe air position
             boolean inSolid = false;
             Location lastSafeAir = null;
             Location phaseDestination = null;
 
             for (int i = 1; i <= MAX_DISTANCE; i++) {
-                Location check = eyeLoc.clone().add(direction.clone().multiply(i));
+                // Use full direction when phasing through solid, horizontal-only in open air
+                Vector stepDir = inSolid ? direction : horizontalDir;
+                Location check = (lastSafeAir != null ? lastSafeAir.clone() : eyeLoc.clone())
+                        .add(stepDir.clone().multiply(inSolid ? i : 1));
+
+                // Recalculate from origin for consistency
+                if (!inSolid) {
+                    check = eyeLoc.clone().add(horizontalDir.clone().multiply(i));
+                } else {
+                    check = eyeLoc.clone().add(direction.clone().multiply(i));
+                }
+
                 Block feetBlock = check.getBlock();
                 Block headBlock = check.clone().add(0, 1, 0).getBlock();
                 boolean feetClear = !feetBlock.getType().isSolid();
@@ -98,7 +109,6 @@ public class GhostRelic extends Relic {
                         phaseDestination.setPitch(player.getLocation().getPitch());
                         break;
                     }
-                    // Track the farthest safe open-air position
                     lastSafeAir = check.clone();
                     lastSafeAir.setYaw(player.getLocation().getYaw());
                     lastSafeAir.setPitch(player.getLocation().getPitch());
@@ -107,11 +117,9 @@ public class GhostRelic extends Relic {
                 }
             }
 
-            // Prefer phase-through destination, fall back to farthest open air
             Location destination = phaseDestination != null ? phaseDestination : lastSafeAir;
             if (destination == null) return AbilityResult.FAILED;
 
-            // Spawn particles at origin
             player.getWorld().spawnParticle(Particle.PORTAL, player.getLocation().add(0, 1, 0), 30, 0.5, 1, 0.5, 0.1);
 
             player.teleport(destination);
@@ -154,7 +162,7 @@ public class GhostRelic extends Relic {
                 public void run() {
                     if (!player.isOnline()) return;
 
-                    // Explicitly send real equipment back to all viewers
+                    // Explicitly send real equipment back to all online players
                     PlayerInventory inv = player.getInventory();
                     Map<EquipmentSlot, ItemStack> realEquipment = new HashMap<>();
                     realEquipment.put(EquipmentSlot.HEAD, getOrEmpty(inv.getHelmet()));
@@ -164,12 +172,13 @@ public class GhostRelic extends Relic {
                     realEquipment.put(EquipmentSlot.HAND, getOrEmpty(inv.getItemInMainHand()));
                     realEquipment.put(EquipmentSlot.OFF_HAND, getOrEmpty(inv.getItemInOffHand()));
 
-                    for (Player viewer : player.getWorld().getPlayers()) {
+                    for (Player viewer : Bukkit.getOnlinePlayers()) {
                         if (!viewer.equals(player)) {
                             viewer.sendEquipmentChange(player, realEquipment);
                         }
                     }
 
+                    player.updateInventory();
                     MessageUtil.info(player, "Vanish has worn off.");
                 }
             }.runTaskLater(GhostRelic.this.plugin, 80L);

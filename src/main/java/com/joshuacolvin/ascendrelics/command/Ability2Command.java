@@ -66,7 +66,8 @@ public class Ability2Command implements CommandExecutor {
         if (result == AbilityResult.SUCCESS) {
             plugin.cooldownManager().setCooldown(player.getUniqueId(), ability.name(), ability.cooldownMillis());
             plugin.lastAbilityUsed().put(player.getUniqueId(), ability);
-            MessageUtil.success(player, ability.name() + " activated!");
+        } else if (result == AbilityResult.SUCCESS_NO_COOLDOWN) {
+            plugin.lastAbilityUsed().put(player.getUniqueId(), ability);
         } else if (result == AbilityResult.NO_TARGET) {
             MessageUtil.error(player, "No valid target found!");
         } else if (result == AbilityResult.FAILED) {

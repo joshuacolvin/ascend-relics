@@ -10,14 +10,17 @@ import com.joshuacolvin.ascendrelics.util.MessageUtil;
 import com.joshuacolvin.ascendrelics.util.ParticleUtil;
 import com.joshuacolvin.ascendrelics.util.TargetUtil;
 import static com.joshuacolvin.ascendrelics.util.TargetUtil.trueDamage;
+import org.bukkit.FluidCollisionMode;
 import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 
 import java.util.List;
@@ -165,10 +168,10 @@ public class GravityRelic extends Relic {
             return AbilityResult.SUCCESS;
         }
 
-        // Charged: Launch up, aim, slam down for up to 7 hearts
+        // Charged: Launch up, look down at target block, slam down for up to 7 hearts
         private AbilityResult executeAscendent(Player player, Plugin pluginRef, AscendRelics ar) {
             ar.ascendentMeterManager().reset(player.getUniqueId());
-            MessageUtil.success(player, "Ascendent Blow! Aim where you want to land!");
+            MessageUtil.success(player, "Ascendent Blow! Look down at your target!");
 
             // Launch the player up high
             player.setVelocity(new Vector(0, 3.5, 0));
@@ -178,24 +181,42 @@ public class GravityRelic extends Relic {
             player.addPotionEffect(new PotionEffect(
                     PotionEffectType.SLOW_FALLING, 60, 0, false, false, true));
 
-            // After 2.5 seconds, slam them to where they're looking
+            // After 2.5 seconds, slam to where they're looking below
             new BukkitRunnable() {
                 @Override
                 public void run() {
                     if (!player.isOnline()) return;
 
-                    // Remove slow falling
                     player.removePotionEffect(PotionEffectType.SLOW_FALLING);
 
-                    // Raycast to find ground target from where player is looking
-                    Location slamTarget = TargetUtil.raycastLocation(player, 30.0);
+                    Location slamTarget;
+
+                    // Check if player is looking downward enough (pitch > 30)
+                    if (player.getLocation().getPitch() >= 30) {
+                        // Raycast down to find the block the player is looking at
+                        RayTraceResult result = player.getWorld().rayTraceBlocks(
+                                player.getEyeLocation(),
+                                player.getEyeLocation().getDirection(),
+                                50.0,
+                                FluidCollisionMode.NEVER,
+                                true
+                        );
+                        if (result != null && result.getHitBlock() != null) {
+                            slamTarget = result.getHitPosition().toLocation(player.getWorld());
+                        } else {
+                            // Fallback: straight down below player
+                            slamTarget = findGroundBelow(player);
+                        }
+                    } else {
+                        // Not looking down enough - force vertical slam
+                        slamTarget = findGroundBelow(player);
+                    }
 
                     // Teleport to slam location
                     slamTarget.setYaw(player.getLocation().getYaw());
                     slamTarget.setPitch(player.getLocation().getPitch());
                     player.teleport(slamTarget);
                     player.setVelocity(new Vector(0, -1.0, 0));
-                    // Cancel fall damage for the caster
                     player.setFallDistance(0);
 
                     // Blast on impact
@@ -203,10 +224,9 @@ public class GravityRelic extends Relic {
                     ParticleUtil.sphere(slamTarget, Particle.EXPLOSION, ASCENDENT_BLAST_RADIUS, 120);
                     ParticleUtil.ring(slamTarget, Particle.EXPLOSION_EMITTER, 4.0, 16);
 
-                    // Damage nearby non-trusted players (distance-based: closer = more damage)
+                    // Damage nearby non-trusted players
                     for (Player target : TargetUtil.getNearbyNonTrusted(player, ASCENDENT_BLAST_RADIUS, ar.trustManager())) {
                         double dist = target.getLocation().distance(slamTarget);
-                        // Scale: full damage at center, half at edge
                         double scale = 1.0 - (dist / (ASCENDENT_BLAST_RADIUS * 2));
                         double damage = Math.max(ASCENDENT_MAX_DAMAGE * 0.5, ASCENDENT_MAX_DAMAGE * scale);
                         trueDamage(target, damage, player);
@@ -217,6 +237,21 @@ public class GravityRelic extends Relic {
             }.runTaskLater(GravityRelic.this.plugin, 50L);
 
             return AbilityResult.SUCCESS;
+        }
+
+        private Location findGroundBelow(Player player) {
+            RayTraceResult result = player.getWorld().rayTraceBlocks(
+                    player.getLocation(),
+                    new Vector(0, -1, 0),
+                    100.0,
+                    FluidCollisionMode.NEVER,
+                    true
+            );
+            if (result != null && result.getHitBlock() != null) {
+                return result.getHitBlock().getLocation().add(0.5, 1, 0.5);
+            }
+            // Absolute fallback
+            return player.getLocation();
         }
     }
 }

@@ -22,7 +22,10 @@ import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class IceRelic extends Relic {
@@ -61,9 +64,8 @@ public class IceRelic extends Relic {
     public static void applyFreeze(LivingEntity target, int durationTicks, Plugin plugin) {
         target.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, durationTicks, 126, false, false, true));
         target.addPotionEffect(new PotionEffect(PotionEffectType.MINING_FATIGUE, durationTicks, 126, false, false, true));
-        target.addPotionEffect(new PotionEffect(PotionEffectType.JUMP_BOOST, durationTicks, 127, false, false, true));
 
-        // Lock camera by saving initial rotation and forcing it every tick
+        // Lock camera and prevent jumping by zeroing positive Y velocity each tick
         if (target instanceof Player playerTarget) {
             float lockedYaw = playerTarget.getLocation().getYaw();
             float lockedPitch = playerTarget.getLocation().getPitch();
@@ -78,6 +80,12 @@ public class IceRelic extends Relic {
                         return;
                     }
                     playerTarget.setRotation(lockedYaw, lockedPitch);
+                    // Prevent jumping by zeroing positive Y velocity
+                    Vector vel = playerTarget.getVelocity();
+                    if (vel.getY() > 0) {
+                        vel.setY(0);
+                        playerTarget.setVelocity(vel);
+                    }
                 }
             }.runTaskTimer(plugin, 0L, 1L);
         }
@@ -115,33 +123,51 @@ public class IceRelic extends Relic {
             super("Snowball Fight", "Shoot 3 snowballs that freeze terrain or damage players", 90);
         }
 
+        // Track all modified blocks for terrain reset
+        private final List<Map.Entry<Block, Material>> modifiedBlocks = new ArrayList<>();
+
         @Override
         public AbilityResult execute(Player player, Plugin pluginRef) {
-            Location eye = player.getEyeLocation();
-            Vector direction = eye.getDirection().normalize();
-
             player.getWorld().playSound(player.getLocation(), Sound.ENTITY_SNOWBALL_THROW, 1.0f, 0.8f);
 
-            // Fire 3 snowballs with slight delay between each
+            List<Map.Entry<Block, Material>> sessionBlocks = new ArrayList<>();
+
+            // Fire 3 snowballs 20 ticks apart
             for (int shot = 0; shot < 3; shot++) {
                 final int shotIndex = shot;
                 new BukkitRunnable() {
                     @Override
                     public void run() {
                         if (!player.isOnline()) return;
-                        // Recalculate direction from current look for each shot
                         Location currentEye = player.getEyeLocation();
                         Vector dir = currentEye.getDirection().normalize();
-                        launchSnowball(player, currentEye.clone(), dir, pluginRef);
+                        launchSnowball(player, currentEye.clone(), dir, pluginRef, sessionBlocks);
                         player.getWorld().playSound(player.getLocation(), Sound.ENTITY_SNOWBALL_THROW, 0.8f, 1.0f + shotIndex * 0.2f);
                     }
-                }.runTaskLater(pluginRef, shot * 5L); // 5 ticks apart
+                }.runTaskLater(pluginRef, shot * 20L);
             }
+
+            // Restore terrain after 15 seconds
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    for (Map.Entry<Block, Material> entry : sessionBlocks) {
+                        Block block = entry.getKey();
+                        Material original = entry.getValue();
+                        // Only restore if still frozen
+                        if (block.getType() == Material.SNOW_BLOCK || block.getType() == Material.SNOW
+                                || block.getType() == Material.ICE) {
+                            block.setType(original);
+                        }
+                    }
+                }
+            }.runTaskLater(pluginRef, 300L);
 
             return AbilityResult.SUCCESS;
         }
 
-        private void launchSnowball(Player shooter, Location start, Vector direction, Plugin pluginRef) {
+        private void launchSnowball(Player shooter, Location start, Vector direction, Plugin pluginRef,
+                                     List<Map.Entry<Block, Material>> sessionBlocks) {
             new BukkitRunnable() {
                 Location current = start.clone();
                 int ticks = 0;
@@ -149,26 +175,24 @@ public class IceRelic extends Relic {
                 @Override
                 public void run() {
                     ticks++;
-                    if (ticks > 60) { // Max 3 seconds of travel
+                    if (ticks > 60) {
                         cancel();
                         return;
                     }
 
-                    // Move the snowball forward
                     Vector step = direction.clone().multiply(1.5);
                     current.add(step);
 
-                    // Spawn snow particle ball at current position
                     current.getWorld().spawnParticle(Particle.SNOWFLAKE, current, 8, 0.2, 0.2, 0.2, 0.01);
                     current.getWorld().spawnParticle(Particle.BLOCK, current, 3, 0.15, 0.15, 0.15, 0,
                             Material.SNOW_BLOCK.createBlockData());
 
-                    // Check for player hit
+                    // Check for entity hit
                     for (LivingEntity entity : TargetUtil.getNearbyLivingEntities(current, 1.2, shooter)) {
                         if (entity instanceof Player) {
-                            trueDamage(entity, 4.0, shooter); // 2 hearts
+                            trueDamage(entity, 4.0, shooter);
                         } else {
-                            trueDamage(entity, 3.0, shooter); // 1.5 hearts for non-players
+                            trueDamage(entity, 3.0, shooter);
                         }
                         entity.getWorld().spawnParticle(Particle.SNOWFLAKE,
                                 entity.getLocation().add(0, 1, 0), 20, 0.5, 0.5, 0.5, 0.1);
@@ -180,13 +204,12 @@ public class IceRelic extends Relic {
                     // Check for block hit
                     Block block = current.getBlock();
                     if (block.getType().isSolid()) {
-                        // Ground impact - deal 1.5 hearts AoE and freeze terrain
                         List<LivingEntity> nearby = TargetUtil.getNearbyLivingEntities(current, 3.0, shooter);
                         for (LivingEntity entity : nearby) {
-                            trueDamage(entity, 3.0, shooter); // 1.5 hearts
+                            trueDamage(entity, 2.0, shooter);
                         }
 
-                        freezeTerrain(current, 4);
+                        freezeTerrain(current, 4, sessionBlocks);
 
                         current.getWorld().spawnParticle(Particle.SNOWFLAKE, current, 30, 1.5, 0.5, 1.5, 0.1);
                         current.getWorld().playSound(current, Sound.BLOCK_SNOW_BREAK, 1.0f, 0.5f);
@@ -196,7 +219,7 @@ public class IceRelic extends Relic {
             }.runTaskTimer(pluginRef, 0L, 1L);
         }
 
-        private void freezeTerrain(Location center, int radius) {
+        private void freezeTerrain(Location center, int radius, List<Map.Entry<Block, Material>> sessionBlocks) {
             int cx = center.getBlockX();
             int cy = center.getBlockY();
             int cz = center.getBlockZ();
@@ -205,21 +228,25 @@ public class IceRelic extends Relic {
                 for (int z = -radius; z <= radius; z++) {
                     if (x * x + z * z > radius * radius) continue;
 
-                    // Find the surface block near impact height
                     for (int y = 2; y >= -2; y--) {
                         Block block = center.getWorld().getBlockAt(cx + x, cy + y, cz + z);
                         Block above = block.getRelative(BlockFace.UP);
 
                         if (FREEZABLE_GROUND.contains(block.getType()) && !above.getType().isSolid()) {
+                            Material original = block.getType();
                             block.setType(Material.SNOW_BLOCK);
+                            sessionBlocks.add(Map.entry(block, original));
                             if (above.getType() == Material.AIR) {
+                                sessionBlocks.add(Map.entry(above, Material.AIR));
                                 above.setType(Material.SNOW);
                             }
                             break;
                         }
 
                         if (WATER_LIKE.contains(block.getType())) {
+                            Material original = block.getType();
                             block.setType(Material.ICE);
+                            sessionBlocks.add(Map.entry(block, original));
                             break;
                         }
                     }

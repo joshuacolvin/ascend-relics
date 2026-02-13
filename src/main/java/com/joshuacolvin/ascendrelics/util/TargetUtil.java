@@ -1,5 +1,6 @@
 package com.joshuacolvin.ascendrelics.util;
 
+import com.joshuacolvin.ascendrelics.AscendRelics;
 import com.joshuacolvin.ascendrelics.manager.TrustManager;
 import org.bukkit.FluidCollisionMode;
 import org.bukkit.Location;
@@ -21,6 +22,7 @@ public final class TargetUtil {
     /**
      * Deals true damage that bypasses armor and enchantments.
      * Directly reduces the entity's health, ignoring all damage reduction.
+     * Lethal damage goes through the death pipeline (totems can proc).
      */
     public static void trueDamage(LivingEntity target, double amount) {
         double absorb = target.getAbsorptionAmount();
@@ -35,7 +37,7 @@ public final class TargetUtil {
         }
         double newHealth = target.getHealth() - amount;
         if (newHealth <= 0) {
-            target.setHealth(0);
+            target.damage(10000);
         } else {
             target.setHealth(newHealth);
         }
@@ -43,9 +45,18 @@ public final class TargetUtil {
 
     /**
      * Deals true damage with a damage source player (for death messages and kill credit).
-     * Uses the standard damage() call but temporarily strips armor protection via attributes.
+     * Skips damage to trusted players. Lethal damage goes through the death pipeline
+     * so totems of undying can activate.
      */
     public static void trueDamage(LivingEntity target, double amount, Player source) {
+        // Trust check: never damage trusted players
+        if (target instanceof Player targetPlayer) {
+            if (AscendRelics.getInstance().trustManager()
+                    .isTrusted(source.getUniqueId(), targetPlayer.getUniqueId())) {
+                return;
+            }
+        }
+
         // Store original absorption
         double absorb = target.getAbsorptionAmount();
         if (absorb > 0) {
@@ -63,7 +74,7 @@ public final class TargetUtil {
         // Trigger the damage event with a tiny amount for animations/sound/kill credit
         target.damage(0.001, source);
         if (newHealth <= 0) {
-            target.setHealth(0);
+            target.damage(10000, source);
         } else {
             target.setHealth(newHealth);
         }
