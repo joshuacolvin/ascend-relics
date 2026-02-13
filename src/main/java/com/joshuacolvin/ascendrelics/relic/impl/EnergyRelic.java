@@ -81,7 +81,7 @@ public class EnergyRelic extends Relic {
                 @Override
                 public void run() {
                     ticks++;
-                    if (ticks > 120 || !player.isOnline()) {
+                    if (ticks > 6 || !player.isOnline()) {
                         cancel();
                         return;
                     }

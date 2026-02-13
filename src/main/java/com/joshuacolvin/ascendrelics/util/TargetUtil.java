@@ -37,7 +37,9 @@ public final class TargetUtil {
         }
         double newHealth = target.getHealth() - amount;
         if (newHealth <= 0) {
-            target.damage(10000);
+            // Set health low, then deal small damage through the pipeline so totems can proc
+            target.setHealth(1);
+            target.damage(50);
         } else {
             target.setHealth(newHealth);
         }
@@ -69,13 +71,14 @@ public final class TargetUtil {
             }
         }
 
-        // Apply hurt animation and knockback via a tiny damage call, then set health directly
         double newHealth = target.getHealth() - amount;
-        // Trigger the damage event with a tiny amount for animations/sound/kill credit
-        target.damage(0.001, source);
         if (newHealth <= 0) {
-            target.damage(10000, source);
+            // Set health low, then deal small damage through the pipeline so totems can proc
+            target.setHealth(1);
+            target.damage(50, source);
         } else {
+            // Trigger hurt animation, then set health directly for true damage
+            target.damage(0.001, source);
             target.setHealth(newHealth);
         }
     }
